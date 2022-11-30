@@ -1,4 +1,4 @@
-package com.alekseyld.checkbot.properties
+package com.alekseyld.checkbot.configuration.properties
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.ConstructorBinding

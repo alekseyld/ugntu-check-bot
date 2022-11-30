@@ -2,6 +2,7 @@ package com.alekseyld.checkbot.service
 
 import com.alekseyld.checkbot.model.QrCodeData
 import com.alekseyld.checkbot.repository.FnsTicketRepository
+import com.alekseyld.checkbot.utils.ReceiptToPdfProcessor
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
 import com.google.zxing.LuminanceSource
@@ -12,9 +13,11 @@ import com.google.zxing.multi.qrcode.QRCodeMultiReader
 import org.springframework.stereotype.Service
 import org.telegram.telegrambots.bots.DefaultAbsSender
 import org.telegram.telegrambots.meta.api.interfaces.BotApiObject
-import org.telegram.telegrambots.meta.api.methods.BotApiMethod
 import org.telegram.telegrambots.meta.api.methods.GetFile
+import org.telegram.telegrambots.meta.api.methods.PartialBotApiMethod
+import org.telegram.telegrambots.meta.api.methods.send.SendDocument
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage
+import org.telegram.telegrambots.meta.api.objects.InputFile
 import org.telegram.telegrambots.meta.api.objects.PhotoSize
 import org.telegram.telegrambots.meta.api.objects.Update
 import org.telegram.telegrambots.meta.bots.AbsSender
@@ -25,10 +28,11 @@ import javax.imageio.ImageIO
 
 @Service
 class BotService(
-    private val fnsTicketRepository: FnsTicketRepository
+    private val fnsTicketRepository: FnsTicketRepository,
+    private val receiptToPdfProcessor: ReceiptToPdfProcessor
 ) {
 
-    fun onUpdateReceived(sender: DefaultAbsSender, update: Update): BotApiMethod<out BotApiObject?>? {
+    fun onUpdateReceived(sender: DefaultAbsSender, update: Update): PartialBotApiMethod<out BotApiObject?>? {
 
         if (update.hasMessage() && update.message.hasPhoto()) {
             return processQrCodeMessage(sender, update)
@@ -39,7 +43,10 @@ class BotService(
         return null
     }
 
-    private fun processQrCodeMessage(sender: DefaultAbsSender, update: Update): BotApiMethod<out BotApiObject?> {
+    private fun processQrCodeMessage(
+        sender: DefaultAbsSender,
+        update: Update
+    ): PartialBotApiMethod<out BotApiObject?> {
         val photoSize = getPhoto(update)!!
         val filePath = getFilePath(sender, photoSize)!!
         val file = downloadPhotoByFilePath(sender, filePath, photoSize.fileUniqueId)
@@ -50,15 +57,23 @@ class BotService(
         return when {
             qrCodeData != null -> {
 
-                val ticket = runCatching {
+                val pdfFile = runCatching {
                     val ticketId = fnsTicketRepository.findTicketBy(qrCodeData)
                     fnsTicketRepository.getTicket(ticketId.id)
-                }.getOrNull()
+                }.getOrNull()?.let {
+                    receiptToPdfProcessor.process(it.ticket.document.receipt)
+                }
 
-                val message = ticket?.toString() ?: qrCodeData.source
+                if (pdfFile != null) {
+                    return SendDocument().apply {
+                        chatId = update.message.chatId.toString()
+                        document = InputFile(pdfFile)
+                    }
+                }
 
-                update.sendMessageBack(message)
+                update.sendMessageBack(qrCodeData.source)
             }
+
             else -> update.sendMessageBack("Не получилось декодировать QR код, повторите еще раз")
         }
     }

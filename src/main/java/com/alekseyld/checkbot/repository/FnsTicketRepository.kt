@@ -3,7 +3,7 @@ package com.alekseyld.checkbot.repository
 import com.alekseyld.checkbot.model.FnsFindTicketResponse
 import com.alekseyld.checkbot.model.FnsTicketResponse
 import com.alekseyld.checkbot.model.QrCodeData
-import com.alekseyld.checkbot.properties.FnsProperties
+import com.alekseyld.checkbot.configuration.properties.FnsProperties
 import com.google.gson.Gson
 import org.apache.http.client.methods.HttpGet
 import org.apache.http.client.methods.HttpPost

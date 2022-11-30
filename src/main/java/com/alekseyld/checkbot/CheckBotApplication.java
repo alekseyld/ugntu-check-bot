@@ -1,7 +1,7 @@
 package com.alekseyld.checkbot;
 
-import com.alekseyld.checkbot.properties.BotProperties;
-import com.alekseyld.checkbot.properties.FnsProperties;
+import com.alekseyld.checkbot.configuration.properties.BotProperties;
+import com.alekseyld.checkbot.configuration.properties.FnsProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

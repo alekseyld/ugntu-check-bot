@@ -1,11 +1,13 @@
 package com.alekseyld.checkbot.bot;
 
-import com.alekseyld.checkbot.properties.BotProperties;
+import com.alekseyld.checkbot.configuration.properties.BotProperties;
 import com.alekseyld.checkbot.service.BotService;
 import lombok.extern.slf4j.Slf4j;
 import org.telegram.telegrambots.bots.TelegramWebhookBot;
 import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
+import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 //@Component
 @Slf4j
@@ -41,7 +43,20 @@ public class TelegramBotController extends TelegramWebhookBot {
     @Override
     public BotApiMethod<?> onWebhookUpdateReceived(Update update) {
         log.debug(update.toString());
-        return service.onUpdateReceived(this, update);
+        var method = service.onUpdateReceived(this, update);
+
+        if (method instanceof BotApiMethod) {
+            return (BotApiMethod<?>) method;
+        } else if (method instanceof SendDocument) {
+            try {
+                execute((SendDocument) method);
+            } catch (TelegramApiException e) {
+                e.printStackTrace();
+            }
+            return null;
+        } else {
+            return null;
+        }
     }
 
 }
