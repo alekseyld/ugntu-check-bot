@@ -1,50 +1,35 @@
-package com.alekseyld.checkbot.bot;
+package com.alekseyld.checkbot.bot
 
-import com.alekseyld.checkbot.properties.BotProperties;
-import com.alekseyld.checkbot.service.BotService;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
-import org.telegram.telegrambots.bots.TelegramLongPollingBot;
-import org.telegram.telegrambots.meta.api.objects.Update;
-import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import com.alekseyld.checkbot.properties.BotProperties
+import com.alekseyld.checkbot.service.BotService
+import org.slf4j.LoggerFactory
+import org.springframework.stereotype.Component
+import org.telegram.telegrambots.bots.TelegramLongPollingBot
+import org.telegram.telegrambots.meta.api.methods.BotApiMethod
+import org.telegram.telegrambots.meta.api.objects.Update
+import java.io.Serializable
 
 @Component
-@Slf4j
-public class TelegramLongPoolBot extends TelegramLongPollingBot {
+class TelegramLongPoolBot(
+    private val botProperties: BotProperties,
+    private val service: BotService
+) : TelegramLongPollingBot() {
 
-    private final BotProperties botProperties;
+    override fun getBotUsername() = botProperties.username
 
-    private final BotService service;
+    override fun getBotToken() = botProperties.token
 
-    public TelegramLongPoolBot(
-            BotProperties botProperties,
-            BotService botService
-    ) {
-        this.botProperties = botProperties;
-        this.service = botService;
-    }
-
-    @Override
-    public String getBotUsername() {
-        return botProperties.getUsername();
-    }
-
-    @Override
-    public String getBotToken() {
-        return botProperties.getToken();
-    }
-
-    @Override
-    public void onUpdateReceived(Update update) {
-        log.debug(update.toString());
-
-        var method = service.onUpdateReceived(this, update);
-        if (method != null) {
-            try {
-                execute(method);
-            } catch (TelegramApiException e) {
-                e.printStackTrace();
-            }
+    override fun onUpdateReceived(update: Update) {
+        log.debug(update.toString())
+        service.onUpdateReceived(this, update)?.let { method ->
+            execute(method)
         }
+    }
+
+    override fun <T : Serializable, Method : BotApiMethod<T>> execute(method: Method): T =
+        super.execute(method)
+
+    companion object {
+        private val log = LoggerFactory.getLogger(this::class.java)
     }
 }

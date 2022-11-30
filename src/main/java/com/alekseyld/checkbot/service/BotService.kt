@@ -1,141 +1,142 @@
-package com.alekseyld.checkbot.service;
+package com.alekseyld.checkbot.service
 
-import com.google.zxing.BinaryBitmap;
-import com.google.zxing.LuminanceSource;
-import com.google.zxing.Reader;
-import com.google.zxing.Result;
-import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
-import com.google.zxing.common.HybridBinarizer;
-import com.google.zxing.multi.qrcode.QRCodeMultiReader;
-import org.springframework.stereotype.Service;
-import org.telegram.telegrambots.bots.DefaultAbsSender;
-import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
-import org.telegram.telegrambots.meta.api.methods.GetFile;
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.objects.File;
-import org.telegram.telegrambots.meta.api.objects.PhotoSize;
-import org.telegram.telegrambots.meta.api.objects.Update;
-import org.telegram.telegrambots.meta.bots.AbsSender;
-import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
-
-import javax.annotation.Nullable;
-import javax.imageio.ImageIO;
-import javax.validation.constraints.NotNull;
-import java.awt.image.BufferedImage;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Objects;
+import com.alekseyld.checkbot.model.QrCodeData
+import com.alekseyld.checkbot.repository.FnsTicketRepository
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
+import com.google.zxing.LuminanceSource
+import com.google.zxing.Reader
+import com.google.zxing.client.j2se.BufferedImageLuminanceSource
+import com.google.zxing.common.HybridBinarizer
+import com.google.zxing.multi.qrcode.QRCodeMultiReader
+import org.springframework.stereotype.Service
+import org.telegram.telegrambots.bots.DefaultAbsSender
+import org.telegram.telegrambots.meta.api.interfaces.BotApiObject
+import org.telegram.telegrambots.meta.api.methods.BotApiMethod
+import org.telegram.telegrambots.meta.api.methods.GetFile
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage
+import org.telegram.telegrambots.meta.api.objects.PhotoSize
+import org.telegram.telegrambots.meta.api.objects.Update
+import org.telegram.telegrambots.meta.bots.AbsSender
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException
+import java.io.File
+import java.util.*
+import javax.imageio.ImageIO
 
 @Service
-public class BotService {
+class BotService(
+    private val fnsTicketRepository: FnsTicketRepository
+) {
 
-    public BotApiMethod<?> onUpdateReceived(DefaultAbsSender sender, Update update) {
+    fun onUpdateReceived(sender: DefaultAbsSender, update: Update): BotApiMethod<out BotApiObject?>? {
 
-        if (update.hasMessage() && update.getMessage().hasPhoto()) {
-            PhotoSize photoSize = getPhoto(update);
-            String filePath = getFilePath(sender, photoSize);
-            java.io.File file = downloadPhotoByFilePath(sender, filePath, photoSize.getFileUniqueId());
-
-            try {
-                BufferedImage bufferedImage = ImageIO.read(file);
-
-                LuminanceSource source = new BufferedImageLuminanceSource(bufferedImage);
-                BinaryBitmap bitmap = new BinaryBitmap(new HybridBinarizer(source));
-                Reader reader = new QRCodeMultiReader();
-
-                Result decodeResult = reader.decode(bitmap);
-
-                System.out.println("qr = ");
-                System.out.println(decodeResult);
-                System.out.println(decodeResult.getText());
-
-                SendMessage response = new SendMessage();
-                response.setChatId(update.getMessage().getChatId().toString());
-                response.setText(decodeResult.getText());
-                return response;
-
-            } catch (Exception e) {
-                e.printStackTrace();
-
-                SendMessage response = new SendMessage();
-                response.setChatId(update.getMessage().getChatId().toString());
-                response.setText("Не получилось декодировать QR код, повторите еще раз");
-
-                return response;
-            } finally {
-//                file.delete();
-            }
-
-        } else if (update.hasMessage() &&
-                update.getMessage().hasText() &&
-                update.getMessage().getText().equals("ping")) {
-
-            SendMessage response = new SendMessage();
-            response.setChatId(update.getMessage().getChatId().toString());
-            response.setText("pong");
-
-            return response;
+        if (update.hasMessage() && update.message.hasPhoto()) {
+            return processQrCodeMessage(sender, update)
+        } else if (update.message?.text == "ping") {
+            return update.sendMessageBack("pong")
         }
 
-        return null;
+        return null
     }
 
+    private fun processQrCodeMessage(sender: DefaultAbsSender, update: Update): BotApiMethod<out BotApiObject?> {
+        val photoSize = getPhoto(update)!!
+        val filePath = getFilePath(sender, photoSize)!!
+        val file = downloadPhotoByFilePath(sender, filePath, photoSize.fileUniqueId)
 
-    @Nullable
-    public PhotoSize getPhoto(@NotNull Update update) {
+        val qrCodeData = file?.let { tryDecodeQR(file) }
+        file?.delete()
+
+        return when {
+            qrCodeData != null -> {
+
+                val ticket = runCatching {
+                    val ticketId = fnsTicketRepository.findTicketBy(qrCodeData)
+                    fnsTicketRepository.getTicket(ticketId.id)
+                }.getOrNull()
+
+                val message = ticket?.toString() ?: qrCodeData.source
+
+                update.sendMessageBack(message)
+            }
+            else -> update.sendMessageBack("Не получилось декодировать QR код, повторите еще раз")
+        }
+    }
+
+    private fun Update.sendMessageBack(text: String): SendMessage {
+        return SendMessage().also {
+            it.chatId = message.chatId.toString()
+            it.text = text
+        }
+    }
+
+    private fun tryDecodeQR(file: File): QrCodeData? {
+        val bufferedImage = ImageIO.read(file)
+        val source: LuminanceSource = BufferedImageLuminanceSource(bufferedImage)
+        val bitmap = BinaryBitmap(HybridBinarizer(source))
+
+        val reader: Reader = QRCodeMultiReader()
+
+        val hints = HashMap<DecodeHintType, Any?>()
+
+        hints[DecodeHintType.TRY_HARDER] = true
+        hints[DecodeHintType.ALSO_INVERTED] = true
+
+        val decodeResult = runCatching {
+            reader.decode(bitmap, hints)
+        }.getOrNull()
+
+        return decodeResult?.let { QrCodeData.fromQrString(it.text) }
+    }
+
+    private fun getPhoto(update: Update): PhotoSize? {
         // Check that the update contains a message and the message has a photo
-        if (update.hasMessage() && update.getMessage().hasPhoto()) {
+        if (update.hasMessage() && update.message.hasPhoto()) {
             // When receiving a photo, you usually get different sizes of it
-            List<PhotoSize> photos = update.getMessage().getPhoto();
+            val photos = update.message.photo
 
             // We fetch the bigger photo
             return photos.stream()
-                    .max(Comparator.comparing(PhotoSize::getFileSize)).orElse(null);
+                .max(Comparator.comparing { obj: PhotoSize? -> obj!!.fileSize }).orElse(null)
         }
 
         // Return null if not found
-        return null;
+        return null
     }
 
-    @Nullable
-    public String getFilePath(@NotNull AbsSender sender, @NotNull PhotoSize photo) {
-        Objects.requireNonNull(photo);
-
-        if (photo.getFilePath() != null) { // If the file_path is already present, we are done!
-            return photo.getFilePath();
+    private fun getFilePath(sender: AbsSender, photo: PhotoSize): String? {
+        Objects.requireNonNull(photo)
+        if (photo.filePath != null) { // If the file_path is already present, we are done!
+            return photo.filePath
         } else { // If not, let find it
             // We create a GetFile method and set the file_id from the photo
-            GetFile getFileMethod = new GetFile();
-            getFileMethod.setFileId(photo.getFileId());
+            val getFileMethod = GetFile()
+            getFileMethod.fileId = photo.fileId
             try {
                 // We execute the method using AbsSender::execute method.
-                File file = sender.execute(getFileMethod);
+                val file = sender.execute(getFileMethod)
                 // We now have the file_path
-                return file.getFilePath();
-            } catch (TelegramApiException e) {
-                e.printStackTrace();
+                return file.filePath
+            } catch (e: TelegramApiException) {
+                e.printStackTrace()
             }
         }
-
-        return null; // Just in case
+        return null // Just in case
     }
 
-    @Nullable
-    public java.io.File downloadPhotoByFilePath(
-            @NotNull DefaultAbsSender sender,
-            @NotNull String filePath,
-            @NotNull String fileUniqueId
-    ) {
+    private fun downloadPhotoByFilePath(
+        sender: DefaultAbsSender,
+        filePath: String,
+        fileUniqueId: String
+    ): File? {
         try {
-            java.io.File outputFile = new java.io.File("cache", fileUniqueId);
+            val outputFile = File("cache", fileUniqueId)
 
             // Download the file calling AbsSender::downloadFile method
-            return sender.downloadFile(filePath, outputFile);
-        } catch (TelegramApiException e) {
-            e.printStackTrace();
+            return sender.downloadFile(filePath, outputFile)
+        } catch (e: TelegramApiException) {
+            e.printStackTrace()
         }
-
-        return null;
+        return null
     }
-
 }
