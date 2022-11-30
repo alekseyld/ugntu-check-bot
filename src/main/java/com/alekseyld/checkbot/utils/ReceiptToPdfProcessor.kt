@@ -45,20 +45,20 @@ class ReceiptToPdfProcessor {
 
         document.add(Paragraph(Chunk.NEWLINE))
 
-        val itemList = List(true)
+        document.add(Paragraph("Наименование, Кол-во        Сумма", font))
 
-        itemList.add(ListItem("Наименование, Кол-во        Сумма", font))
+        val itemList = List(true)
 
         receipt.items.forEach { item ->
             itemList.add(
-                ListItem("${item.name}, ${item.quantity}        ${item.sum}", font)
+                ListItem("${item.name}, ${item.quantity}        ${item.sum/100}", font)
             )
         }
 
         document.add(itemList)
 
         document.add(Paragraph(Chunk.NEWLINE))
-        document.add(Paragraph("ИТОГО: ${receipt.totalSum}", font))
+        document.add(Paragraph("ИТОГО: ${receipt.totalSum/100}", font))
 
         document.add(Paragraph(Chunk.NEWLINE))
 
